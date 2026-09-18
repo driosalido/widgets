@@ -15,6 +15,7 @@
 const ENTITY = "sensor.cartera_valor";
 const URL_KEY = "ha_url";
 const TOKEN_KEY = "ha_token";
+const LINK_KEY = "portfolio_link";
 const REFRESH_MINUTES = 30;
 
 // --- colours -------------------------------------------------------------
@@ -30,22 +31,60 @@ const RULE = Color.dynamic(new Color("#e5e5ea"), new Color("#2c2c2e"));
 
 // --- configuration -------------------------------------------------------
 
+const stored = (key) => (Keychain.contains(key) ? Keychain.get(key) : "");
+
+async function editSettings() {
+  const alert = new Alert();
+  alert.title = "Home Assistant";
+  alert.message =
+    "Instance URL and a long-lived access token. The tap target is optional: " +
+    "leave it empty and the widget opens Scriptable instead.";
+  alert.addTextField("https://homeassistant.example.com", stored(URL_KEY));
+  alert.addSecureTextField("Access token", stored(TOKEN_KEY));
+  alert.addTextField("Tap opens (optional)", stored(LINK_KEY));
+  alert.addAction("Save");
+  alert.addCancelAction("Cancel");
+  if ((await alert.present()) === -1) return false;
+
+  Keychain.set(URL_KEY, alert.textFieldValue(0).trim().replace(/\/$/, ""));
+  // An empty secure field means "keep the token I already had", so that the
+  // tap target can be changed without retyping a 180-character token.
+  const token = alert.textFieldValue(1).trim();
+  if (token) Keychain.set(TOKEN_KEY, token);
+  Keychain.set(LINK_KEY, alert.textFieldValue(2).trim());
+  return true;
+}
+
 async function settings() {
-  const missing = !Keychain.contains(URL_KEY) || !Keychain.contains(TOKEN_KEY);
-  if (missing) {
-    if (!config.runsInApp) return null;
-    const alert = new Alert();
-    alert.title = "Home Assistant";
-    alert.message = "Instance URL and a long-lived access token.";
-    alert.addTextField("https://homeassistant.example.com", Keychain.contains(URL_KEY) ? Keychain.get(URL_KEY) : "");
-    alert.addSecureTextField("Access token", "");
-    alert.addAction("Save");
-    alert.addCancelAction("Cancel");
-    if ((await alert.present()) === -1) return null;
-    Keychain.set(URL_KEY, alert.textFieldValue(0).trim().replace(/\/$/, ""));
-    Keychain.set(TOKEN_KEY, alert.textFieldValue(1).trim());
+  const configured = Keychain.contains(URL_KEY) && Keychain.contains(TOKEN_KEY);
+
+  // A widget cannot present dialogs, so it can only use what is already there.
+  if (!config.runsInApp) {
+    return configured
+      ? { url: Keychain.get(URL_KEY), token: Keychain.get(TOKEN_KEY), link: stored(LINK_KEY) }
+      : null;
   }
-  return { url: Keychain.get(URL_KEY), token: Keychain.get(TOKEN_KEY) };
+
+  if (!configured) {
+    if (!(await editSettings())) return null;
+  } else {
+    // Running from inside the app is deliberate, so offer the settings rather
+    // than hiding them behind a keychain reset.
+    const menu = new Alert();
+    menu.title = "Cartera";
+    menu.addAction("Ver widget");
+    menu.addAction("Ajustes");
+    menu.addCancelAction("Cancelar");
+    const choice = await menu.present();
+    if (choice === -1) return null;
+    if (choice === 1 && !(await editSettings())) return null;
+  }
+
+  return {
+    url: Keychain.get(URL_KEY),
+    token: Keychain.get(TOKEN_KEY),
+    link: stored(LINK_KEY),
+  };
 }
 
 // --- data ----------------------------------------------------------------
@@ -262,6 +301,11 @@ try {
   if (!credentials) {
     failureWidget(widget, "Sin configurar.\nAbre el guion en Scriptable.");
   } else {
+    // Tapping the widget opens this. It is a keychain entry and not a constant
+    // because it points at a private host: a LAN-only address works at home
+    // and fails silently on mobile data, so it is the user's call.
+    if (credentials.link) widget.url = credentials.link;
+
     const data = await readPortfolio(credentials);
     if (onLockScreen) accessoryWidget(widget, data);
     else if (family === "small") smallWidget(widget, data);

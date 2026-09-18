@@ -31,12 +31,32 @@ cost of losing over-the-air updates.
    https://raw.githubusercontent.com/<user>/widgets/main
    ```
 
-4. Run it once more. It now asks for the Home Assistant URL and a long-lived
-   access token (Home Assistant → profile → Security → Long-lived access tokens).
+4. Run it once more. It now asks for the Home Assistant URL, a long-lived access
+   token (Home Assistant → profile → Security → Long-lived access tokens) and,
+   optionally, the address a tap should open.
 5. Add a Scriptable widget to the home screen and pick that script.
 
 Both prompts only appear when the script runs inside the app: a widget cannot
 present dialogs. A tile reading *Sin configurar* means step 3 or 4 is missing.
+
+Running the script inside the app again offers **Ajustes**, where any of the
+three values can be changed. Leaving the token field empty there keeps the
+token already stored, so the tap target can be edited on its own.
+
+### What a tap opens
+
+Anything the phone can open, stored in the keychain rather than in this file
+because it names a private host:
+
+| Value | Opens |
+|---|---|
+| `https://<portfolio-host>` | the portfolio web app in Safari |
+| `homeassistant://navigate/lovelace/0` | a dashboard in the Home Assistant app |
+| empty | nothing useful — the widget falls back to opening Scriptable |
+
+A LAN-only address is a deliberate choice, not a bug: it works at home and
+fails on mobile data. If the widget should always open to something, point it
+at a host that resolves from anywhere.
 
 ## Widgets
 
