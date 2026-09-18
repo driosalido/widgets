@@ -111,6 +111,11 @@ async function readPortfolio({ url, token }) {
     dayPct: Number(attr.dia_pct),
     year: Number(attr.anual),
     yearPct: Number(attr.anual_pct),
+    // Year-to-date return, in percent, one number per sample. It travels as an
+    // attribute so the chart costs no extra request, and it is return rather
+    // than value on purpose: a value line climbs on contributions alone, so it
+    // would slope reassuringly upwards through a losing year.
+    series: Array.isArray(attr.serie) ? attr.serie.map(Number).filter(Number.isFinite) : [],
     updatedAt: new Date(state.last_updated),
   };
 }
@@ -190,6 +195,76 @@ function statRow(container, name, text) {
   figure.textColor = PRIMARY;
 }
 
+// A sparkline has to be drawn into an image: Scriptable has no chart element.
+//
+// DrawContext resolves a Color.dynamic once, when the image is rendered, so it
+// cannot follow the appearance the way a text colour does. The appearance is
+// therefore read explicitly here.
+function sparkline(container, series, width, height) {
+  if (series.length < 2) return;
+
+  const dark = Device.isUsingDarkAppearance();
+  const rising = series[series.length - 1] >= series[0];
+  const line = new Color(rising ? (dark ? "#30d158" : "#248a3d") : (dark ? "#ff453a" : "#d70015"));
+  const baseline = new Color(dark ? "#48484a" : "#d1d1d6");
+
+  const scale = 3; // drawn oversampled so the curve is not stepped on retina
+  const w = width * scale;
+  const h = height * scale;
+
+  const ctx = new DrawContext();
+  ctx.size = new Size(w, h);
+  ctx.opaque = false;
+  // Left off deliberately: the context is already oversampled by `scale`, and
+  // letting it scale again would render a needlessly huge image.
+  ctx.respectScreenScale = false;
+
+  const min = Math.min(...series, 0);
+  const max = Math.max(...series, 0);
+  const span = max - min || 1;
+  const pad = 2 * scale;
+  const x = (i) => (i / (series.length - 1)) * w;
+  const y = (v) => h - pad - ((v - min) / span) * (h - 2 * pad);
+
+  // Zero is where "made nothing" sits; without it a chart that never left the
+  // red still looks like a climb.
+  if (min < 0 && max > 0) {
+    const zero = new Path();
+    zero.move(new Point(0, y(0)));
+    zero.addLine(new Point(w, y(0)));
+    ctx.setStrokeColor(baseline);
+    ctx.setLineWidth(1 * scale);
+    ctx.addPath(zero);
+    ctx.strokePath();
+  }
+
+  const area = new Path();
+  area.move(new Point(0, y(series[0])));
+  series.forEach((v, i) => area.addLine(new Point(x(i), y(v))));
+  area.addLine(new Point(w, h));
+  area.addLine(new Point(0, h));
+  area.closeSubpath();
+  ctx.setFillColor(new Color(line.hex, 0.18));
+  ctx.addPath(area);
+  ctx.fillPath();
+
+  const curve = new Path();
+  curve.move(new Point(0, y(series[0])));
+  series.forEach((v, i) => curve.addLine(new Point(x(i), y(v))));
+  ctx.setStrokeColor(line);
+  ctx.setLineWidth(2 * scale);
+  ctx.addPath(curve);
+  ctx.strokePath();
+
+  const last = series[series.length - 1];
+  const dot = 3 * scale;
+  ctx.setFillColor(line);
+  ctx.fillEllipse(new Rect(w - dot, y(last) - dot, dot * 2, dot * 2));
+
+  const image = container.addImage(ctx.getImage());
+  image.imageSize = new Size(width, height);
+}
+
 function footer(container, date) {
   container.addSpacer();
   const stamp = container.addText(clock(date));
@@ -202,12 +277,14 @@ function footer(container, date) {
 
 function smallWidget(widget, data) {
   label(widget, "CARTERA");
-  widget.addSpacer(6);
-  amount(widget, euro(data.value), 26);
-  widget.addSpacer(8);
-  changeRow(widget, "Hoy", data.day, data.dayPct);
-  widget.addSpacer(3);
-  changeRow(widget, "Año", data.year, data.yearPct);
+  widget.addSpacer(4);
+  amount(widget, euro(data.value), 25);
+  widget.addSpacer(5);
+  sparkline(widget, data.series, 130, 24);
+  widget.addSpacer(5);
+  changeRow(widget, "Hoy", data.day, data.dayPct, 11);
+  widget.addSpacer(2);
+  changeRow(widget, "Año", data.year, data.yearPct, 11);
   footer(widget, data.updatedAt);
 }
 
@@ -229,12 +306,13 @@ function mediumWidget(widget, data) {
 
   const right = columns.addStack();
   right.layoutVertically();
-  right.addSpacer(18);
+  label(right, "RENTABILIDAD " + new Date().getFullYear(), 9);
+  right.addSpacer(6);
+  sparkline(right, data.series, 144, 52);
+  right.addSpacer(8);
   statRow(right, "Aportado", euro(data.invested));
-  right.addSpacer(5);
+  right.addSpacer(4);
   statRow(right, "Ganado", signed(data.value - data.invested, (n) => euro(n)));
-  right.addSpacer(5);
-  statRow(right, "Patrimonio", euro(data.netWorth));
   right.addSpacer();
 }
 
@@ -247,7 +325,12 @@ function largeWidget(widget, data) {
   widget.addSpacer(5);
   changeRow(widget, "Este año", data.year, data.yearPct, 13);
 
-  widget.addSpacer(16);
+  widget.addSpacer(14);
+  label(widget, "RENTABILIDAD " + new Date().getFullYear(), 9);
+  widget.addSpacer(6);
+  sparkline(widget, data.series, 310, 64);
+
+  widget.addSpacer(14);
   const rule = widget.addStack();
   rule.size = new Size(0, 1);
   rule.backgroundColor = RULE;
@@ -258,8 +341,6 @@ function largeWidget(widget, data) {
   statRow(widget, "Ganado", signed(data.value - data.invested, (n) => euro(n)));
   widget.addSpacer(6);
   statRow(widget, "Patrimonio", euro(data.netWorth));
-  widget.addSpacer(6);
-  statRow(widget, "Efectivo", euro(data.netWorth - data.value, 2));
 
   footer(widget, data.updatedAt);
 }

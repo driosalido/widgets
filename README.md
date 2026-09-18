@@ -75,6 +75,12 @@ every figure, so the whole widget costs a single request:
 | `invertido` | total contributed |
 | `dia`, `dia_pct` | change today |
 | `anual`, `anual_pct` | change year to date |
+| `serie` | year-to-date return per sample, in percent, for the sparkline |
+
+`serie` is return and not value on purpose. A value line climbs whenever money
+is paid in, so it slopes reassuringly upwards through a losing year; a return
+line only rises when the holdings actually gain. It carries no dates — a
+sparkline draws none — which keeps the attribute near 250 bytes.
 
 Supports the small, medium and large families plus the lock screen accessories.
 Colours follow the phone's light or dark appearance. Visible labels are in
